@@ -1,132 +1,126 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Library Management System API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A NestJS + Prisma + PostgreSQL (hosted on Neon) backend service for a Library Management System.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## Repository Structure
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+The project follows a decoupled service architecture with the backend application housed inside the `api/` directory:
 
-## Project setup
-
-```bash
-$ npm install
+```
+library-api/
+├── README.md             # Project documentation and schema design rationale
+├── .gitignore            # Git exclusion rules (safeguards .env and build files)
+├── .env                  # Local environment file (never committed)
+└── api/                  # Application root
+    ├── .env.example      # Environment variable template with placeholders
+    ├── package.json      # Dependencies and execution scripts
+    ├── tsconfig.json     # TypeScript ESM compiler configuration
+    ├── nest-cli.json     # NestJS CLI configuration
+    ├── prisma7.config.ts # Prisma 7 configuration and seed runner
+    ├── prisma/
+    │   ├── schema.prisma # Data models (User, Genre, Book, Role enum)
+    │   ├── seed.ts       # Idempotent database seed script
+    │   └── migrations/   # Historical migration DDLs
+    ├── src/
+    │   ├── main.ts       # Application entry point
+    │   ├── app.module.ts # Root NestJS application module
+    │   ├── prisma/       # PrismaModule and PrismaService lifecycle management
+    │   └── generated/    # Generated Prisma client output
+    └── test/             # End-to-end and integration tests
 ```
 
-## Compile and run the project
+---
 
+## Schema Decisions
+
+### Why `Book` References `Genre` Instead of Embedding It
+
+In relational data modeling and domain-driven design, a central decision is whether to normalize reference entities like `Genre` or embed them directly (e.g., as a free-form string or JSON attribute on `Book`). In this architecture, `Genre` is modeled as an independent, normalized relation where each `Book` explicitly references a `Genre` record via `genreId` and Prisma's `@relation` attribute.
+
+This design was chosen for several critical reasons:
+
+1. **Relational Normalization and Single Source of Truth:**
+   - Genres are distinct domain entities with their own metadata (such as `name` and `description`). Normalizing genres into their own table ensures that genre data is defined once and referenced consistently across the system.
+   - If genre names were embedded as strings on `Book` records, updating a genre name (e.g., renaming "Science" to "Science & Technology") would require bulk-updating thousands of rows across the `Book` table, risking partial updates, table locks, and inconsistent states.
+
+2. **Elimination of Data Redundancy and Typo Inconsistencies:**
+   - Embedding text values introduces significant risk of typos, casing discrepancies (e.g., `"Sci-Fi"`, `"scifi"`, `"Science Fiction"`), and duplicates.
+   - A dedicated `Genre` table enforces uniqueness on `Genre.name` at the database level (`@unique`), guaranteeing catalog-wide standardization.
+
+3. **Query Optimization and Indexing:**
+   - Relational foreign keys allow the database engine to maintain a b-tree index on `Book.genreId` (`@@index([genreId])`).
+   - Querying books by genre operates as an integer-based index lookup rather than expensive full-table scans or text pattern matches on string columns.
+   - Database joins between `Book` and `Genre` are compact, predictable, and performant.
+
+4. **Referential Integrity and Deletion Safety:**
+   - With an explicit Prisma relation (`@relation(fields: [genreId], references: [id], onDelete: Restrict)`), PostgreSQL enforces foreign key constraints at the storage engine level.
+   - A genre cannot be accidentally deleted if books are still assigned to it (`onDelete: Restrict`), protecting the library catalog against orphaned records.
+
+5. **Extensibility and Separation of Concerns:**
+   - Modeling `Genre` as a first-class table enables future enhancements without schema breakage—such as adding hierarchical genres (parent/child categories), genre codes, localized translations, or librarian classification taxonomies.
+
+---
+
+## Getting Started
+
+### Prerequisites
+- Node.js (v20 or higher)
+- npm or pnpm
+- PostgreSQL instance (local or hosted Neon database)
+
+### Environment Configuration
+The backend application supports safe dual-location environment resolution:
+1. It first checks `api/.env` if present.
+2. It falls back to `../.env` (repository root).
+
+To create a local configuration from the template:
 ```bash
-# development
-$ npm run start
+cd api
+cp .env.example .env
+```
+Update `.env` with your PostgreSQL database connection string (`DATABASE_URL`).
 
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+### Installation
+From within the `api/` directory:
+```bash
+npm install
 ```
 
-## Run tests
-
+### Database Setup & Migrations
 ```bash
-# unit tests
-$ npm run test
+# Validate Prisma schema
+npx prisma validate --config prisma7.config.ts
 
-# e2e tests
-$ npm run test:e2e
+# Generate Prisma Client
+npx prisma generate --config prisma7.config.ts
 
-# test coverage
-$ npm run test:cov
+# Apply pending migrations
+npx prisma migrate deploy --config prisma7.config.ts
+
+# Run seed script
+npm run seed
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
+### Running the Application
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+# Development mode with hot-reload
+npm run start:dev
+
+# Production build & start
+npm run build
+npm run start:prod
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Observability
-
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
-
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-To add it to this project, run this and approve the code it prints at [observe.nestjs.com/link](https://observe.nestjs.com/link) - signing up for free if you have no account:
-
+### Running Tests & Quality Checks
 ```bash
-$ npx @nestjs/observe link
+# Unit tests
+npm run test
+
+# Type-aware linting
+npm run lint
+
+# E2E tests
+npm run test:e2e
 ```
-
-It installs `@nestjs/observe`, wires it into `AppModule` and `main.ts`, and writes the app key and secret into `.env`, which every `nest start` script (`start`, `start:dev`, `start:debug`) then loads. In production, set `OBSERVE_APP_KEY` and `OBSERVE_APP_SECRET` in the environment instead.
-
-Or do it by hand:
-
-```bash
-$ npm install @nestjs/observe
-```
-
-Then follow the [setup guide](https://docs.nestjs.com/observability/sdk) - it takes a single import and an app key.
-
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).

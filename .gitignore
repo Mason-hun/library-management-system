@@ -1,6 +1,9 @@
 # compiled output
 /dist
+/api/dist
+node_modules
 /node_modules
+/api/node_modules
 /build
 
 # TypeScript build cache
@@ -20,6 +23,7 @@ lerna-debug.log*
 
 # Tests
 /coverage
+/api/coverage
 /.nyc_output
 
 # IDEs and editors
@@ -40,10 +44,11 @@ lerna-debug.log*
 
 # dotenv environment variable files
 .env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
+.env.*
+!.env.example
+/api/.env
+/api/.env.*
+!api/.env.example
 
 # temp directory
 .temp
@@ -61,6 +66,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Prisma
 /generated/prisma
 /src/generated/
+api/src/generated/
 
 # Temporary Prisma 8 initialization files
 /.agents/
@@ -68,3 +74,4 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 /.cursor/
 /.devin/
 /prisma.config.prisma8-backup
+/api/prisma.config.prisma8-backup
