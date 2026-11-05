@@ -1,126 +1,174 @@
-# Library Management System API
+# Library Management System
 
-A NestJS + Prisma + PostgreSQL (hosted on Neon) backend service for a Library Management System.
+A backend data-layer implementation for a Library Management System, built with **NestJS**, **Prisma ORM 7**, and **PostgreSQL** (hosted on Neon).
 
----
+This project models users and catalog data, enforces a one-to-many relationship between genres and books, and includes a repeatable seed script for development data.
 
-## Repository Structure
+## Project Structure
 
-The project follows a decoupled service architecture with the backend application housed inside the `api/` directory:
-
-```
-library-api/
-├── README.md             # Project documentation and schema design rationale
-├── .gitignore            # Git exclusion rules (safeguards .env and build files)
-├── .env                  # Local environment file (never committed)
-└── api/                  # Application root
-    ├── .env.example      # Environment variable template with placeholders
-    ├── package.json      # Dependencies and execution scripts
-    ├── tsconfig.json     # TypeScript ESM compiler configuration
-    ├── nest-cli.json     # NestJS CLI configuration
-    ├── prisma7.config.ts # Prisma 7 configuration and seed runner
+```text
+library-management-system/
+├── README.md
+├── .gitignore
+└── api/
+    ├── .env.example
+    ├── package.json
+    ├── prisma7.config.ts
     ├── prisma/
-    │   ├── schema.prisma # Data models (User, Genre, Book, Role enum)
-    │   ├── seed.ts       # Idempotent database seed script
-    │   └── migrations/   # Historical migration DDLs
-    ├── src/
-    │   ├── main.ts       # Application entry point
-    │   ├── app.module.ts # Root NestJS application module
-    │   ├── prisma/       # PrismaModule and PrismaService lifecycle management
-    │   └── generated/    # Generated Prisma client output
-    └── test/             # End-to-end and integration tests
+    │   ├── schema.prisma
+    │   ├── seed.ts
+    │   └── migrations/
+    └── src/
+        ├── main.ts
+        ├── app.module.ts
+        └── prisma/
+            ├── prisma.module.ts
+            └── prisma.service.ts
 ```
 
----
+## Data Model
+
+The Prisma schema defines:
+
+- **User** — a user account with a unique email and a `Role` value.
+- **Role** — an enum containing `PATRON` and `LIBRARIAN`; new users default to `PATRON`.
+- **Genre** — a uniquely named catalog category with an optional description.
+- **Book** — a catalog item with a unique ISBN and a required reference to one genre.
+
+### Book–Genre relationship
+
+The relationship is **one-to-many**:
+
+- A genre can contain many books.
+- Each book belongs to exactly one genre.
+- `Book.genreId` is a required foreign key referencing `Genre.id`.
+- The relation uses `onDelete: Restrict`, preventing deletion of a genre while books still reference it.
 
 ## Schema Decisions
 
-### Why `Book` References `Genre` Instead of Embedding It
+### Why does Book reference Genre instead of embedding it?
 
-In relational data modeling and domain-driven design, a central decision is whether to normalize reference entities like `Genre` or embed them directly (e.g., as a free-form string or JSON attribute on `Book`). In this architecture, `Genre` is modeled as an independent, normalized relation where each `Book` explicitly references a `Genre` record via `genreId` and Prisma's `@relation` attribute.
+A genre is a reusable catalog concept with its own identity and metadata. Modeling it as a separate table avoids repeating genre names in every book record and gives the database one authoritative place to maintain genre information.
 
-This design was chosen for several critical reasons:
+The `Book.genreId` foreign key and Prisma `@relation` provide several benefits:
 
-1. **Relational Normalization and Single Source of Truth:**
-   - Genres are distinct domain entities with their own metadata (such as `name` and `description`). Normalizing genres into their own table ensures that genre data is defined once and referenced consistently across the system.
-   - If genre names were embedded as strings on `Book` records, updating a genre name (e.g., renaming "Science" to "Science & Technology") would require bulk-updating thousands of rows across the `Book` table, risking partial updates, table locks, and inconsistent states.
+1. **Consistency:** `Genre.name` is unique, so books reference a canonical genre instead of storing slightly different text values such as `Science`, `science`, or `Sci`.
+2. **Less duplication:** Updating a genre's name or description happens once in the Genre record rather than across many Book records.
+3. **Referential integrity:** PostgreSQL enforces that every book references an existing genre. The restrictive delete behavior protects genres that are still in use.
+4. **Clear querying:** The foreign key and its index support filtering books by genre and joining book data with genre metadata.
+5. **Extensibility:** Genre-specific attributes can be added without changing every book record.
 
-2. **Elimination of Data Redundancy and Typo Inconsistencies:**
-   - Embedding text values introduces significant risk of typos, casing discrepancies (e.g., `"Sci-Fi"`, `"scifi"`, `"Science Fiction"`), and duplicates.
-   - A dedicated `Genre` table enforces uniqueness on `Genre.name` at the database level (`@unique`), guaranteeing catalog-wide standardization.
+### Prisma compared with a document database
 
-3. **Query Optimization and Indexing:**
-   - Relational foreign keys allow the database engine to maintain a b-tree index on `Book.genreId` (`@@index([genreId])`).
-   - Querying books by genre operates as an integer-based index lookup rather than expensive full-table scans or text pattern matches on string columns.
-   - Database joins between `Book` and `Genre` are compact, predictable, and performant.
+Prisma models this catalog through explicit relational models, scalar fields, and foreign-key relations. The database enforces the relationship between `Book` and `Genre`. In a document database, the same domain could instead be represented with embedded genre data inside book documents or with references between separate documents. Embedding can make some reads convenient, but repeating genre details across books introduces update and consistency concerns. For a catalog where genres are shared entities, a normalized relational model is a natural fit.
 
-4. **Referential Integrity and Deletion Safety:**
-   - With an explicit Prisma relation (`@relation(fields: [genreId], references: [id], onDelete: Restrict)`), PostgreSQL enforces foreign key constraints at the storage engine level.
-   - A genre cannot be accidentally deleted if books are still assigned to it (`onDelete: Restrict`), protecting the library catalog against orphaned records.
+## Seed Data
 
-5. **Extensibility and Separation of Concerns:**
-   - Modeling `Genre` as a first-class table enables future enhancements without schema breakage—such as adding hierarchical genres (parent/child categories), genre codes, localized translations, or librarian classification taxonomies.
+The seed script inserts or updates:
 
----
+| Genre | Books |
+|---|---:|
+| Fiction | 4 |
+| Philosophy | 5 |
+| Science | 4 |
+| History | 2 |
+| **Total** | **15** |
+
+The script uses Prisma `upsert` operations keyed by unique genre names and book ISBNs, making repeated runs safe for the included seed records.
+
+## Technology
+
+- Node.js
+- NestJS
+- TypeScript
+- Prisma ORM 7 with the PostgreSQL driver adapter
+- PostgreSQL
+- Neon (hosted PostgreSQL)
 
 ## Getting Started
 
 ### Prerequisites
-- Node.js (v20 or higher)
-- npm or pnpm
-- PostgreSQL instance (local or hosted Neon database)
 
-### Environment Configuration
-The backend application supports safe dual-location environment resolution:
-1. It first checks `api/.env` if present.
-2. It falls back to `../.env` (repository root).
+- Node.js 20 or later
+- npm
+- A PostgreSQL database (local PostgreSQL or a hosted instance such as Neon)
 
-To create a local configuration from the template:
+### 1. Clone the repository
+
 ```bash
-cd api
+git clone https://github.com/Mason-hun/library-management-system.git
+cd library-management-system/api
+```
+
+### 2. Configure the database connection
+
+Create an environment file from the example:
+
+**PowerShell**
+```powershell
+Copy-Item .env.example .env
+```
+
+**macOS / Linux**
+```bash
 cp .env.example .env
 ```
-Update `.env` with your PostgreSQL database connection string (`DATABASE_URL`).
 
-### Installation
-From within the `api/` directory:
+Set `DATABASE_URL` in `api/.env` to your PostgreSQL connection string. The committed `.env.example` contains placeholders only. Never commit real database credentials.
+
+The Prisma configuration, seed script, and Prisma service load environment variables from `api/.env`; they also support the repository-root `.env` fallback used during development.
+
+### 3. Install dependencies
+
+Run from the `api/` directory:
+
 ```bash
 npm install
 ```
 
-### Database Setup & Migrations
+### 4. Validate, generate, migrate, and seed
+
+The project uses a custom Prisma 7 configuration file, so include it in Prisma CLI commands:
+
 ```bash
-# Validate Prisma schema
 npx prisma validate --config prisma7.config.ts
-
-# Generate Prisma Client
 npx prisma generate --config prisma7.config.ts
-
-# Apply pending migrations
 npx prisma migrate deploy --config prisma7.config.ts
-
-# Run seed script
 npm run seed
 ```
 
-### Running the Application
-```bash
-# Development mode with hot-reload
-npm run start:dev
+These commands validate the schema, generate the Prisma Client, apply committed migrations to the configured database, and insert the sample catalog data. Run migrations only against a database you intend to update.
 
-# Production build & start
+### 5. Run the NestJS application
+
+Development mode:
+
+```bash
+npm run start:dev
+```
+
+Build and run:
+
+```bash
 npm run build
 npm run start:prod
 ```
 
-### Running Tests & Quality Checks
+The application listens on port `3000` by default. Set `PORT` in your environment to override it.
+
+## Quality Checks
+
+From the `api/` directory:
+
 ```bash
-# Unit tests
-npm run test
-
-# Type-aware linting
 npm run lint
-
-# E2E tests
+npm test
 npm run test:e2e
+npm run build
 ```
+
+## Environment and Security
+
+- Keep real credentials in an untracked `.env` file.
+- Use `.env.example` as the safe configuration template.
+- Do not commit database URLs, passwords, generated build output, or `node_modules`.
